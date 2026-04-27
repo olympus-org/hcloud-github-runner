@@ -12,22 +12,21 @@ runcmd:
   - bash "$MY_RUNNER_DIR/pre_runner_script.sh"
   - |
     set -eu
-    LOG_FILE=/var/log/runner-bootstrap.log
-    echo "[$(date)] cloud-init runcmd started" >> "$LOG_FILE"
+    echo "[$(date)] cloud-init runcmd started" >> /var/log/runner-bootstrap.log
 
     if [ ! -f /opt/runner-bootstrap.sh ]; then
-      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh not found" >> "$LOG_FILE"
-      ls -la /opt >> "$LOG_FILE" 2>&1 || true
+      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh not found" >> /var/log/runner-bootstrap.log
+      ls -la /opt >> /var/log/runner-bootstrap.log 2>&1 || true
       exit 1
     fi
 
     if [ ! -s /opt/runner-bootstrap.sh ]; then
-      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh is empty" >> "$LOG_FILE"
+      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh is empty" >> /var/log/runner-bootstrap.log
       exit 1
     fi
 
     if [ ! -f /etc/default/runner-bootstrap-env ]; then
-      echo "[$(date)] ERROR: /etc/default/runner-bootstrap-env not found" >> "$LOG_FILE"
+      echo "[$(date)] ERROR: /etc/default/runner-bootstrap-env not found" >> /var/log/runner-bootstrap.log
       exit 1
     fi
 
@@ -38,7 +37,7 @@ runcmd:
     . /etc/default/runner-bootstrap-env
     set +a
 
-    bash /opt/runner-bootstrap.sh >> "$LOG_FILE" 2>&1
+    bash /opt/runner-bootstrap.sh >> /var/log/runner-bootstrap.log 2>&1
 write_files:
   - path: "$MY_RUNNER_DIR/pre_runner_script.sh"
     encoding: b64
