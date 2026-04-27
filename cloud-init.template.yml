@@ -10,7 +10,7 @@ package_upgrade: false
 runcmd:
   - udevadm trigger -c add -s block -p ID_VENDOR=HC -p ID_MODEL=Volume
   - bash "$MY_RUNNER_DIR/pre_runner_script.sh"
-  - bash /opt/runner-bootstrap.sh
+  - MY_RUNNER_COUNT="$MY_RUNNER_COUNT" MY_RUNNER_DIR="$MY_RUNNER_DIR" MY_RUNNER_VERSION="$MY_RUNNER_VERSION" MY_GITHUB_REPOSITORY="$MY_GITHUB_REPOSITORY" MY_GITHUB_RUNNER_REGISTRATION_TOKEN="$MY_GITHUB_RUNNER_REGISTRATION_TOKEN" MY_NAME="$MY_NAME" bash /opt/runner-bootstrap.sh
 write_files:
   - path: "$MY_RUNNER_DIR/pre_runner_script.sh"
     encoding: b64
