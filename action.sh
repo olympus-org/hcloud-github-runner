@@ -346,15 +346,70 @@ curl -L \
 # Read the GitHub Runner registration token from a file (assuming valid JSON)
 MY_GITHUB_RUNNER_REGISTRATION_TOKEN=$(jq -er '.token' < "registration-token.json")
 
-# Encode the contents of the "install.sh" and runner script into base64
+# Create runner bootstrap script content
+MY_RUNNER_BOOTSTRAP_SCRIPT=$(cat <<'BOOTSTRAP_EOF'
+#!/bin/bash
+set -uo pipefail
+exec 1> >(tee -a /var/log/runner-bootstrap.log)
+exec 2>&1
+
+export RUNNER_ALLOW_RUNASROOT=1
+
+echo "[$(date)] Starting runner bootstrap..."
+echo "[$(date)] MY_RUNNER_COUNT=$MY_RUNNER_COUNT"
+echo "[$(date)] MY_RUNNER_DIR=$MY_RUNNER_DIR"
+echo "[$(date)] MY_RUNNER_VERSION=$MY_RUNNER_VERSION"
+
+bash "$MY_RUNNER_DIR/install.sh" -v "$MY_RUNNER_VERSION" -d "$MY_RUNNER_DIR" 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Install failed"; exit 1; }
+
+if [[ "$MY_RUNNER_COUNT" -le 1 ]]; then
+  echo "[$(date)] Single-runner mode"
+  "$MY_RUNNER_DIR/config.sh" --unattended --replace --url "https://github.com/${MY_GITHUB_REPOSITORY}" --token "${MY_GITHUB_RUNNER_REGISTRATION_TOKEN}" --name "${MY_NAME}" --labels "${MY_NAME},hetzner" --no-default-labels --disableupdate 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Config failed"; exit 1; }
+  echo "[$(date)] Installing service..."
+  "$MY_RUNNER_DIR/svc.sh" install 2>&1 | tee -a /var/log/runner-bootstrap.log
+  echo "[$(date)] Starting service..."
+  "$MY_RUNNER_DIR/svc.sh" start 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed"; exit 1; }
+  echo "[$(date)] Runner started successfully"
+else
+  echo "[$(date)] Multi-runner mode: registering $MY_RUNNER_COUNT runners"
+  install -d /opt/actions-runner-template
+  cp -a "$MY_RUNNER_DIR/." /opt/actions-runner-template/
+
+  for i in $(seq 1 "$MY_RUNNER_COUNT"); do
+    echo "[$(date)] Setting up runner $i of $MY_RUNNER_COUNT"
+    RUNNER_INSTANCE_DIR="${MY_RUNNER_DIR}-${i}"
+    RUNNER_INSTANCE_NAME="${MY_NAME}-${i}"
+
+    rm -rf "$RUNNER_INSTANCE_DIR"
+    mkdir -p "$RUNNER_INSTANCE_DIR"
+    cp -a /opt/actions-runner-template/. "$RUNNER_INSTANCE_DIR/"
+
+    echo "[$(date)] Configuring runner $i..."
+    "$RUNNER_INSTANCE_DIR/config.sh" --unattended --replace --url "https://github.com/${MY_GITHUB_REPOSITORY}" --token "${MY_GITHUB_RUNNER_REGISTRATION_TOKEN}" --name "$RUNNER_INSTANCE_NAME" --labels "${RUNNER_INSTANCE_NAME},${MY_NAME},hetzner" --no-default-labels --disableupdate 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Config failed for runner $i"; exit 1; }
+    echo "[$(date)] Installing service for runner $i..."
+    "$RUNNER_INSTANCE_DIR/svc.sh" install 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Service install failed for runner $i"; exit 1; }
+    echo "[$(date)] Starting runner service $i..."
+    "$RUNNER_INSTANCE_DIR/svc.sh" start 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed for runner $i"; exit 1; }
+    echo "[$(date)] Runner $i registered and started"
+  done
+  echo "[$(date)] All $MY_RUNNER_COUNT runners configured and started"
+fi
+
+echo "[$(date)] Runner bootstrap completed successfully"
+BOOTSTRAP_EOF
+)
+
+# Encode the runner bootstrap script into base64
 # BSD
 if [[ "$OSTYPE" == "darwin"* || "$OSTYPE" == "freebsd"* ]]; then
 	MY_INSTALL_SH_BASE64=$(base64 < "install.sh")
 	MY_PRE_RUNNER_SCRIPT_BASE64=$(echo "$MY_PRE_RUNNER_SCRIPT" | base64)
+	MY_RUNNER_BOOTSTRAP_BASE64=$(echo "$MY_RUNNER_BOOTSTRAP_SCRIPT" | base64)
 # GNU Core tools
 else
 	MY_INSTALL_SH_BASE64=$(base64 --wrap=0 < "install.sh")
 	MY_PRE_RUNNER_SCRIPT_BASE64=$(echo "$MY_PRE_RUNNER_SCRIPT" | base64 --wrap=0)
+	MY_RUNNER_BOOTSTRAP_BASE64=$(echo "$MY_RUNNER_BOOTSTRAP_SCRIPT" | base64 --wrap=0)
 fi
 # Split repository into owner and repository name
 MY_GITHUB_OWNER="${MY_GITHUB_REPOSITORY%/*}"   # Extract the part before the last /
@@ -371,6 +426,7 @@ export MY_PRE_RUNNER_SCRIPT_BASE64
 export MY_RUNNER_DIR
 export MY_RUNNER_VERSION
 export MY_RUNNER_COUNT
+export MY_RUNNER_BOOTSTRAP_BASE64
 # Substitute environment variables in the cloud-init template and create the final cloud-init configuration
 if [[ ! -f "cloud-init.template.yml" ]]; then
 	exit_with_failure "cloud-init.template.yml not found!"
