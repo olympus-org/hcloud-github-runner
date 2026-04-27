@@ -202,6 +202,13 @@ if [[ ! "$MY_RUNNER_WAIT" =~ ^[0-9]+$ ]]; then
 	exit_with_failure "The maximum wait time (retries) for GitHub Action Runner registration must be an integer!"
 fi
 
+# Set number of runners to register on the created server (default: 1)
+# If INPUT_RUNNER_COUNT is set, use its value; otherwise, use "1".
+MY_RUNNER_COUNT=${INPUT_RUNNER_COUNT:-"1"}
+if [[ ! "$MY_RUNNER_COUNT" =~ ^[0-9]+$ || "$MY_RUNNER_COUNT" -lt 1 ]]; then
+	exit_with_failure "Runner count must be an integer greater than 0."
+fi
+
 # Set Hetzner Cloud Server ID
 # Check only if mode is delete.
 MY_HETZNER_SERVER_ID=${INPUT_SERVER_ID}
@@ -272,24 +279,45 @@ if [[ "$MY_MODE" == "delete" ]]; then
 		"https://api.github.com/repos/${MY_GITHUB_REPOSITORY}/actions/runners" \
 		|| exit_with_failure "Failed to list GitHub Actions runners from repository!"
 
-	MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_NAME\") | .id" < "github-runners.json")
-	# Check if MY_GITHUB_RUNNER_ID is an integer
-	if [[ ! "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
-		exit_with_failure "Failed to get ID of the GitHub Actions Runner!"
-	fi
+	if [[ "$MY_RUNNER_COUNT" -eq 1 ]]; then
+		MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_NAME\") | .id" < "github-runners.json")
+		# Check if MY_GITHUB_RUNNER_ID is an integer
+		if [[ ! "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
+			exit_with_failure "Failed to get ID of the GitHub Actions Runner!"
+		fi
 
-	# Delete a self-hosted runner from repository
-	# https://docs.github.com/en/rest/actions/self-hosted-runners?apiVersion=2022-11-28#delete-a-self-hosted-runner-from-a-repository
-	echo "Delete GitHub Actions Runner..."
-	curl -L \
-		-X DELETE \
-		--fail-with-body \
-		-H "Accept: application/vnd.github+json" \
-		-H "Authorization: Bearer ${MY_GITHUB_TOKEN}" \
-		-H "X-GitHub-Api-Version: 2022-11-28" \
-		"https://api.github.com/repos/${MY_GITHUB_REPOSITORY}/actions/runners/${MY_GITHUB_RUNNER_ID}" \
-		|| exit_with_failure "Failed to delete GitHub Actions Runner from repository! Please delete manually: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners"
-	echo "GitHub Actions Runner deleted successfully."
+		# Delete a self-hosted runner from repository
+		# https://docs.github.com/en/rest/actions/self-hosted-runners?apiVersion=2022-11-28#delete-a-self-hosted-runner-from-a-repository
+		echo "Delete GitHub Actions Runner..."
+		curl -L \
+			-X DELETE \
+			--fail-with-body \
+			-H "Accept: application/vnd.github+json" \
+			-H "Authorization: Bearer ${MY_GITHUB_TOKEN}" \
+			-H "X-GitHub-Api-Version: 2022-11-28" \
+			"https://api.github.com/repos/${MY_GITHUB_REPOSITORY}/actions/runners/${MY_GITHUB_RUNNER_ID}" \
+			|| exit_with_failure "Failed to delete GitHub Actions Runner from repository! Please delete manually: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners"
+		echo "GitHub Actions Runner deleted successfully."
+	else
+		echo "Delete ${MY_RUNNER_COUNT} GitHub Actions Runners..."
+		for i in $(seq 1 "$MY_RUNNER_COUNT"); do
+			MY_RUNNER_NAME="${MY_NAME}-${i}"
+			MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_RUNNER_NAME\") | .id" < "github-runners.json" 2>/dev/null || true)
+			if [[ "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
+				curl -L \
+					-X DELETE \
+					--fail-with-body \
+					-H "Accept: application/vnd.github+json" \
+					-H "Authorization: Bearer ${MY_GITHUB_TOKEN}" \
+					-H "X-GitHub-Api-Version: 2022-11-28" \
+					"https://api.github.com/repos/${MY_GITHUB_REPOSITORY}/actions/runners/${MY_GITHUB_RUNNER_ID}" \
+					|| exit_with_failure "Failed to delete GitHub Actions Runner '${MY_RUNNER_NAME}' from repository! Please delete manually: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners"
+				echo "GitHub Actions Runner '${MY_RUNNER_NAME}' deleted successfully."
+			else
+				echo "GitHub Actions Runner '${MY_RUNNER_NAME}' not found, skip."
+			fi
+		done
+	fi
 	echo
 	echo "The Hetzner Cloud Server and its associated GitHub Actions Runner have been deleted successfully."
 	# Add GitHub Action job summary 
@@ -342,6 +370,7 @@ export MY_NAME
 export MY_PRE_RUNNER_SCRIPT_BASE64
 export MY_RUNNER_DIR
 export MY_RUNNER_VERSION
+export MY_RUNNER_COUNT
 # Substitute environment variables in the cloud-init template and create the final cloud-init configuration
 if [[ ! -f "cloud-init.template.yml" ]]; then
 	exit_with_failure "cloud-init.template.yml not found!"
@@ -480,6 +509,7 @@ fi
 MAX_RETRIES=$MY_RUNNER_WAIT
 RETRY_COUNT=0
 echo "Wait for GitHub Actions Runner registration..."
+MY_ALL_RUNNERS_REGISTERED="false"
 while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
 	# List self-hosted runners for repository
 	# https://docs.github.com/en/rest/actions/self-hosted-runners?apiVersion=2022-11-28#list-self-hosted-runners-for-a-repository
@@ -491,11 +521,28 @@ while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
 		"https://api.github.com/repos/${MY_GITHUB_REPOSITORY}/actions/runners" \
 		|| exit_with_failure "Failed to list GitHub Actions runners from repository!"
 
-	MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_NAME\") | .id" < "github-runners.json")
-	# Check if MY_GITHUB_RUNNER_ID is an integer
-	if [[ "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
-		echo "GitHub Actions Runner registered."
-		break
+	if [[ "$MY_RUNNER_COUNT" -eq 1 ]]; then
+		MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_NAME\") | .id" < "github-runners.json" 2>/dev/null || true)
+		# Check if MY_GITHUB_RUNNER_ID is an integer
+		if [[ "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
+			echo "GitHub Actions Runner registered."
+			MY_ALL_RUNNERS_REGISTERED="true"
+			break
+		fi
+	else
+		MY_ALL_RUNNERS_REGISTERED="true"
+		for i in $(seq 1 "$MY_RUNNER_COUNT"); do
+			MY_RUNNER_NAME="${MY_NAME}-${i}"
+			MY_GITHUB_RUNNER_ID=$(jq -er ".runners[] | select(.name == \"$MY_RUNNER_NAME\") | .id" < "github-runners.json" 2>/dev/null || true)
+			if [[ ! "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
+				MY_ALL_RUNNERS_REGISTERED="false"
+				break
+			fi
+		done
+		if [[ "$MY_ALL_RUNNERS_REGISTERED" == "true" ]]; then
+			echo "All ${MY_RUNNER_COUNT} GitHub Actions Runners registered."
+			break
+		fi
 	fi
 
 	RETRY_COUNT=$((RETRY_COUNT + 1)) # Increment retry counter
@@ -503,14 +550,22 @@ while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
 	echo "GitHub Actions Runner is not yet registered. Wait $WAIT_SEC seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
 	sleep "$WAIT_SEC"
 done
-if [[ ! "$MY_GITHUB_RUNNER_ID" =~ ^[0-9]+$ ]]; then
+if [[ "$MY_ALL_RUNNERS_REGISTERED" != "true" ]]; then
 	exit_with_failure "GitHub Actions Runner is not registered. Please check installation manually."
 fi
 
 echo
-echo "The Hetzner Cloud Server and its associated GitHub Actions Runner are ready for use." 
-echo "Runner: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners/${MY_GITHUB_RUNNER_ID}"
+echo "The Hetzner Cloud Server and its associated GitHub Actions Runner are ready for use."
+if [[ "$MY_RUNNER_COUNT" -eq 1 ]]; then
+	echo "Runner: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners/${MY_GITHUB_RUNNER_ID}"
+else
+	echo "Runners: https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners"
+fi
 # Add GitHub Action job summary 
 # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-job-summary
-echo "The Hetzner Cloud Server and its associated [GitHub Actions Runner](https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners/${MY_GITHUB_RUNNER_ID}) are ready for use 🚀" >> "$GITHUB_STEP_SUMMARY"
+if [[ "$MY_RUNNER_COUNT" -eq 1 ]]; then
+	echo "The Hetzner Cloud Server and its associated [GitHub Actions Runner](https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners/${MY_GITHUB_RUNNER_ID}) are ready for use 🚀" >> "$GITHUB_STEP_SUMMARY"
+else
+	echo "The Hetzner Cloud Server and its ${MY_RUNNER_COUNT} associated [GitHub Actions Runners](https://github.com/${MY_GITHUB_REPOSITORY}/settings/actions/runners) are ready for use 🚀" >> "$GITHUB_STEP_SUMMARY"
+fi
 exit 0
