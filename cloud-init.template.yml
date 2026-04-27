@@ -26,14 +26,18 @@ runcmd:
       exit 1
     fi
 
+    if [ ! -f /etc/default/runner-bootstrap-env ]; then
+      echo "[$(date)] ERROR: /etc/default/runner-bootstrap-env not found" >> "$LOG_FILE"
+      exit 1
+    fi
+
     chmod +x /opt/runner-bootstrap.sh || true
 
-    MY_RUNNER_COUNT="$MY_RUNNER_COUNT" \
-    MY_RUNNER_DIR="$MY_RUNNER_DIR" \
-    MY_RUNNER_VERSION="$MY_RUNNER_VERSION" \
-    MY_GITHUB_REPOSITORY="$MY_GITHUB_REPOSITORY" \
-    MY_GITHUB_RUNNER_REGISTRATION_TOKEN="$MY_GITHUB_RUNNER_REGISTRATION_TOKEN" \
-    MY_NAME="$MY_NAME" \
+    # Load variables from file to avoid fragile one-line env passing in runcmd.
+    set -a
+    . /etc/default/runner-bootstrap-env
+    set +a
+
     bash /opt/runner-bootstrap.sh >> "$LOG_FILE" 2>&1
 write_files:
   - path: "$MY_RUNNER_DIR/pre_runner_script.sh"
@@ -46,3 +50,12 @@ write_files:
     encoding: b64
     content: $MY_RUNNER_BOOTSTRAP_BASE64
     permissions: '0755'
+  - path: /etc/default/runner-bootstrap-env
+    content: |
+      MY_RUNNER_COUNT="$MY_RUNNER_COUNT"
+      MY_RUNNER_DIR="$MY_RUNNER_DIR"
+      MY_RUNNER_VERSION="$MY_RUNNER_VERSION"
+      MY_GITHUB_REPOSITORY="$MY_GITHUB_REPOSITORY"
+      MY_GITHUB_RUNNER_REGISTRATION_TOKEN="$MY_GITHUB_RUNNER_REGISTRATION_TOKEN"
+      MY_NAME="$MY_NAME"
+    permissions: '0600'
