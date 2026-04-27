@@ -366,9 +366,9 @@ if [[ "$MY_RUNNER_COUNT" -le 1 ]]; then
   echo "[$(date)] Single-runner mode"
   "$MY_RUNNER_DIR/config.sh" --unattended --replace --url "https://github.com/${MY_GITHUB_REPOSITORY}" --token "${MY_GITHUB_RUNNER_REGISTRATION_TOKEN}" --name "${MY_NAME}" --labels "${MY_NAME},hetzner" --no-default-labels --disableupdate 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Config failed"; exit 1; }
   echo "[$(date)] Installing service..."
-  "$MY_RUNNER_DIR/svc.sh" install 2>&1 | tee -a /var/log/runner-bootstrap.log
+  (cd "$MY_RUNNER_DIR" && ./svc.sh install) 2>&1 | tee -a /var/log/runner-bootstrap.log
   echo "[$(date)] Starting service..."
-  "$MY_RUNNER_DIR/svc.sh" start 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed"; exit 1; }
+  (cd "$MY_RUNNER_DIR" && ./svc.sh start) 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed"; exit 1; }
   echo "[$(date)] Runner started successfully"
 else
   echo "[$(date)] Multi-runner mode: registering $MY_RUNNER_COUNT runners"
@@ -387,9 +387,9 @@ else
     echo "[$(date)] Configuring runner $i..."
     "$RUNNER_INSTANCE_DIR/config.sh" --unattended --replace --url "https://github.com/${MY_GITHUB_REPOSITORY}" --token "${MY_GITHUB_RUNNER_REGISTRATION_TOKEN}" --name "$RUNNER_INSTANCE_NAME" --labels "${RUNNER_INSTANCE_NAME},${MY_NAME},hetzner" --no-default-labels --disableupdate 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Config failed for runner $i"; exit 1; }
     echo "[$(date)] Installing service for runner $i..."
-    "$RUNNER_INSTANCE_DIR/svc.sh" install 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Service install failed for runner $i"; exit 1; }
+    (cd "$RUNNER_INSTANCE_DIR" && ./svc.sh install) 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Service install failed for runner $i"; exit 1; }
     echo "[$(date)] Starting runner service $i..."
-    "$RUNNER_INSTANCE_DIR/svc.sh" start 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed for runner $i"; exit 1; }
+    (cd "$RUNNER_INSTANCE_DIR" && ./svc.sh start) 2>&1 | tee -a /var/log/runner-bootstrap.log || { echo "[$(date)] Start failed for runner $i"; exit 1; }
     echo "[$(date)] Runner $i registered and started"
   done
   echo "[$(date)] All $MY_RUNNER_COUNT runners configured and started"
