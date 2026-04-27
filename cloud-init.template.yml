@@ -10,7 +10,31 @@ package_upgrade: false
 runcmd:
   - udevadm trigger -c add -s block -p ID_VENDOR=HC -p ID_MODEL=Volume
   - bash "$MY_RUNNER_DIR/pre_runner_script.sh"
-  - MY_RUNNER_COUNT="$MY_RUNNER_COUNT" MY_RUNNER_DIR="$MY_RUNNER_DIR" MY_RUNNER_VERSION="$MY_RUNNER_VERSION" MY_GITHUB_REPOSITORY="$MY_GITHUB_REPOSITORY" MY_GITHUB_RUNNER_REGISTRATION_TOKEN="$MY_GITHUB_RUNNER_REGISTRATION_TOKEN" MY_NAME="$MY_NAME" bash /opt/runner-bootstrap.sh
+  - |
+    set -eu
+    LOG_FILE=/var/log/runner-bootstrap.log
+    echo "[$(date)] cloud-init runcmd started" >> "$LOG_FILE"
+
+    if [ ! -f /opt/runner-bootstrap.sh ]; then
+      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh not found" >> "$LOG_FILE"
+      ls -la /opt >> "$LOG_FILE" 2>&1 || true
+      exit 1
+    fi
+
+    if [ ! -s /opt/runner-bootstrap.sh ]; then
+      echo "[$(date)] ERROR: /opt/runner-bootstrap.sh is empty" >> "$LOG_FILE"
+      exit 1
+    fi
+
+    chmod +x /opt/runner-bootstrap.sh || true
+
+    MY_RUNNER_COUNT="$MY_RUNNER_COUNT" \
+    MY_RUNNER_DIR="$MY_RUNNER_DIR" \
+    MY_RUNNER_VERSION="$MY_RUNNER_VERSION" \
+    MY_GITHUB_REPOSITORY="$MY_GITHUB_REPOSITORY" \
+    MY_GITHUB_RUNNER_REGISTRATION_TOKEN="$MY_GITHUB_RUNNER_REGISTRATION_TOKEN" \
+    MY_NAME="$MY_NAME" \
+    bash /opt/runner-bootstrap.sh >> "$LOG_FILE" 2>&1
 write_files:
   - path: "$MY_RUNNER_DIR/pre_runner_script.sh"
     encoding: b64
