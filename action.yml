@@ -86,6 +86,11 @@ inputs:
       Wait up to 'runner_wait' retries (10 sec each) for runner registration (default: 10 minutes).
     required: false
     default: '60'
+  runner_count:
+    description: >-
+      Number of runners to register on the created server. Defaults to 1 for backward compatibility.
+    required: false
+    default: '1'
   runner_version:
     description: >-
       GitHub Actions Runner version (omit 'v'; e.g., '2.321.0').
@@ -155,6 +160,7 @@ runs:
         INPUT_RUNNER_DIR: ${{ inputs.runner_dir }}
         INPUT_RUNNER_VERSION: ${{ inputs.runner_version }}
         INPUT_RUNNER_WAIT: ${{ inputs.runner_wait }}
+        INPUT_RUNNER_COUNT: ${{ inputs.runner_count }}
         INPUT_SERVER_ID: ${{ inputs.server_id }}
         INPUT_SERVER_TYPE: ${{ inputs.server_type }}
         INPUT_SERVER_WAIT: ${{ inputs.server_wait }}
